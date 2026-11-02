@@ -6,6 +6,15 @@
   body {
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
+
+  /* CRITICAL FIX FOR HTML2CANVAS FONT METRICS WITH TAILWIND PREFLIGHT:
+     Tailwind sets `img { display: block }`, which breaks html2canvas's internal
+     FontMetrics baseline detector (it places a 1x1 <img> after a <span> and
+     reads `img.offsetTop - span.offsetTop`). Keeping `img` inline-block by default
+     ensures 100% exact vertical alignment of all text, icons, and pill badges! */
+  img {
+    display: inline-block;
+  }
 }
 
 /* Custom Royal Scrollbar */
@@ -141,6 +150,8 @@
   transform-origin: top center;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
 }
 
 @page {

@@ -42,7 +42,7 @@ function useSquareCroppedPhoto(photoSrc) {
         setCroppedSrc(photoSrc);
         return;
       }
-      const outSize = 400;
+      const outSize = 480;
       const canvas = document.createElement('canvas');
       canvas.width = outSize;
       canvas.height = outSize;
@@ -106,7 +106,7 @@ export default function CVPreview({
   useEffect(() => {
     if (params.afficherQrCode && qrTarget) {
       QRCode.toDataURL(qrTarget, {
-        width: 140,
+        width: 160,
         margin: 1,
         color: {
           dark: '#0f172a',
@@ -156,18 +156,21 @@ export default function CVPreview({
     return (
       <div
         data-pdf-block="true"
-        className={`inline-flex flex-col items-center p-1.5 rounded-lg border ${
+        className={`inline-flex flex-col items-center justify-center p-2 rounded-lg border ${
           darkBg ? 'bg-white text-slate-900 border-white/30' : 'bg-white text-slate-800 border-slate-200'
         } shadow-sm shrink-0`}
       >
         <img
           src={qrDataUrl}
           alt="QR Code CV"
-          width={56}
-          height={56}
-          style={{ width: '56px', height: '56px', display: 'block' }}
+          width={58}
+          height={58}
+          style={{ width: '58px', height: '58px', display: 'block' }}
         />
-        <span className="text-[8.5px] font-semibold uppercase mt-0.5 text-slate-600" style={{ letterSpacing: '0.03em' }}>
+        <span
+          className="text-[8.5px] font-bold uppercase mt-1 text-slate-700 leading-none"
+          style={{ letterSpacing: '0.04em' }}
+        >
           Scanner
         </span>
       </div>
@@ -317,7 +320,7 @@ export default function CVPreview({
   }
 
   // ============================================================================
-  // 3. REUSABLE SECTION RENDERERS (OPTIMIZED FOR HTML2CANVAS & MULTI-PAGE PDF)
+  // 3. REUSABLE SECTION RENDERERS (PERFECT ICON & BADGE ALIGNMENT)
   // ============================================================================
   const ContactList = ({ dark = false, inline = false }) => {
     const items = [
@@ -340,14 +343,15 @@ export default function CVPreview({
             <div
               key={idx}
               className={`flex items-center ${inline ? 'mr-4 mb-1.5' : ''}`}
-              style={{ wordBreak: 'break-word' }}
+              style={{ wordBreak: 'break-word', lineHeight: '1.35' }}
             >
-              <IconComponent
-                size={13}
-                className="shrink-0 mr-2"
-                style={{ color: dark ? secondary : primary }}
-              />
-              <span className={dark ? 'opacity-95' : 'text-slate-700'}>{item.val}</span>
+              <span className="inline-flex items-center justify-center w-4 h-4 mr-2 shrink-0">
+                <IconComponent
+                  size={13}
+                  style={{ color: dark ? secondary : primary, display: 'block' }}
+                />
+              </span>
+              <span className={`${dark ? 'opacity-95' : 'text-slate-700'} leading-snug`}>{item.val}</span>
             </div>
           );
         })}
@@ -357,18 +361,24 @@ export default function CVPreview({
 
   const SectionHeading = ({ title, icon: Icon, dark = false, styleVariant = 'underline' }) => (
     <div
+      data-pdf-heading="true"
       className={`flex items-center font-bold uppercase mb-2.5 ${
         styleVariant === 'underline' ? 'pb-1.5 border-b-2' : ''
-      } ${styleVariant === 'pill' ? 'px-3 py-1 rounded-lg' : ''}`}
+      } ${styleVariant === 'pill' ? 'px-3 py-1.5 rounded-lg' : ''}`}
       style={{
         color: dark ? '#ffffff' : primary,
         borderColor: dark ? 'rgba(255,255,255,0.25)' : primary,
         backgroundColor: styleVariant === 'pill' ? `${primary}14` : 'transparent',
         letterSpacing: '0.04em',
+        lineHeight: '1.2',
       }}
     >
-      {Icon && <Icon size={15} className="mr-2 shrink-0" style={{ color: dark ? secondary : primary }} />}
-      <span className="text-[12.5px]">{title}</span>
+      {Icon && (
+        <span className="inline-flex items-center justify-center w-4 h-4 mr-2 shrink-0">
+          <Icon size={15} style={{ color: dark ? secondary : primary, display: 'block' }} />
+        </span>
+      )}
+      <span className="text-[12.5px] leading-none">{title}</span>
     </div>
   );
 
@@ -384,16 +394,20 @@ export default function CVPreview({
               className="relative pl-3 border-l-2"
               style={{ borderColor: `${primary}45`, pageBreakInside: 'avoid', breakInside: 'avoid' }}
             >
-              <div className="flex flex-wrap justify-between items-baseline">
-                <h4 className="font-bold text-slate-900 text-[13.5px] mr-2">{exp.poste}</h4>
+              <div className="flex items-start justify-between gap-2">
+                <h4 className="font-bold text-slate-900 text-[13.5px] leading-snug flex-1">{exp.poste}</h4>
                 <span
-                  className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full shrink-0"
-                  style={{ backgroundColor: `${primary}14`, color: primary }}
+                  className="inline-flex items-center justify-center text-[10.5px] font-semibold px-2.5 py-1 rounded-full shrink-0 leading-none"
+                  style={{
+                    backgroundColor: `${primary}14`,
+                    color: primary,
+                    minHeight: '20px',
+                  }}
                 >
                   {exp.dateDebut} — {exp.dateFin || labels.present}
                 </span>
               </div>
-              <div className="text-xs font-semibold mb-1 mt-0.5" style={{ color: primary }}>
+              <div className="text-xs font-semibold mb-1 mt-0.5 leading-snug" style={{ color: primary }}>
                 {exp.entreprise}
               </div>
               {exp.description && (
@@ -407,7 +421,7 @@ export default function CVPreview({
 
   const FormationsBlock = ({ dark = false }) =>
     cv.formations?.length > 0 && (
-      <div>
+      <div data-pdf-block="true">
         <SectionHeading title={labels.formations} icon={GraduationCap} dark={dark} />
         <div className="space-y-2.5">
           {cv.formations.map((f) => (
@@ -416,13 +430,21 @@ export default function CVPreview({
               data-pdf-block="true"
               style={{ pageBreakInside: 'avoid', breakInside: 'avoid' }}
             >
-              <div className="flex justify-between items-baseline">
-                <h4 className={`font-bold text-xs mr-2 ${dark ? 'text-white' : 'text-slate-900'}`}>{f.diplome}</h4>
-                <span className={`text-[11px] shrink-0 ${dark ? 'opacity-80' : 'text-slate-500 font-medium'}`}>
-                  {f.dateDebut}{f.dateFin && f.dateFin !== f.dateDebut ? ` - ${f.dateFin}` : ''}
+              <div className="flex justify-between items-start gap-2">
+                <h4 className={`font-bold text-xs leading-snug flex-1 ${dark ? 'text-white' : 'text-slate-900'}`}>
+                  {f.diplome}
+                </h4>
+                <span
+                  className={`inline-flex items-center justify-center text-[10.5px] px-2 py-0.5 rounded-full shrink-0 leading-none ${
+                    dark ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-600 font-semibold'
+                  }`}
+                  style={{ minHeight: '19px' }}
+                >
+                  {f.dateDebut}
+                  {f.dateFin && f.dateFin !== f.dateDebut ? ` - ${f.dateFin}` : ''}
                 </span>
               </div>
-              <div className={`text-xs font-medium ${dark ? 'opacity-90' : 'text-slate-600'}`}>{f.ecole}</div>
+              <div className={`text-xs font-medium mt-0.5 ${dark ? 'opacity-90' : 'text-slate-600'}`}>{f.ecole}</div>
               {f.description && (
                 <p className={`text-[11px] mt-0.5 ${dark ? 'opacity-75' : 'text-slate-500'}`}>{f.description}</p>
               )}
@@ -441,10 +463,11 @@ export default function CVPreview({
             {cv.competences.map((c) => (
               <span
                 key={c.id}
-                className="px-2.5 py-1 rounded-md text-[11px] font-semibold mr-1.5 mb-1.5 inline-block"
+                className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-[11px] font-semibold mr-1.5 mb-1.5 leading-none"
                 style={{
                   backgroundColor: dark ? 'rgba(255,255,255,0.16)' : `${primary}14`,
                   color: dark ? '#ffffff' : primary,
+                  minHeight: '22px',
                 }}
               >
                 {c.nom}
@@ -452,10 +475,10 @@ export default function CVPreview({
             ))}
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {cv.competences.map((c) => (
               <div key={c.id}>
-                <div className="flex justify-between text-[11.5px] font-medium mb-0.5">
+                <div className="flex justify-between text-[11.5px] font-medium mb-1 leading-snug">
                   <span className={dark ? 'text-white' : 'text-slate-800'}>{c.nom}</span>
                 </div>
                 <div className={`w-full h-1.5 rounded-full overflow-hidden ${dark ? 'bg-white/20' : 'bg-slate-200'}`}>
@@ -480,7 +503,7 @@ export default function CVPreview({
         <SectionHeading title={labels.langues} icon={LangIcon} dark={dark} />
         <div className="space-y-1.5 text-xs">
           {cv.langues.map((l) => (
-            <div key={l.id} className="flex justify-between items-center">
+            <div key={l.id} className="flex justify-between items-center leading-snug">
               <span className={`font-semibold mr-2 ${dark ? 'text-white' : 'text-slate-800'}`}>{l.nom}</span>
               <span className={`text-[11px] ${dark ? 'opacity-85' : 'text-slate-500'}`}>{l.niveau}</span>
             </div>
@@ -496,7 +519,7 @@ export default function CVPreview({
         <div className="space-y-1.5 text-xs">
           {cv.certifications.map((cert) => (
             <div key={cert.id}>
-              <div className={`font-semibold ${dark ? 'text-white' : 'text-slate-800'}`}>{cert.nom}</div>
+              <div className={`font-semibold leading-snug ${dark ? 'text-white' : 'text-slate-800'}`}>{cert.nom}</div>
               <div className={`text-[11px] ${dark ? 'opacity-75' : 'text-slate-500'}`}>
                 {cert.organisme} {cert.date ? `• ${cert.date}` : ''}
               </div>
@@ -508,7 +531,7 @@ export default function CVPreview({
 
   const ProjetsBlock = () =>
     cv.projets?.length > 0 && (
-      <div>
+      <div data-pdf-block="true">
         <SectionHeading title={labels.projets} icon={FolderGit2} />
         <div className="grid grid-cols-1 gap-2.5">
           {cv.projets.map((p) => (
@@ -541,9 +564,10 @@ export default function CVPreview({
           {cv.centresInteret.map((i) => (
             <span
               key={i.id}
-              className={`text-[11px] px-2.5 py-0.5 rounded-full mr-1.5 mb-1.5 inline-block ${
+              className={`inline-flex items-center justify-center text-[11px] px-2.5 py-1 rounded-full mr-1.5 mb-1.5 leading-none ${
                 dark ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-700'
               }`}
+              style={{ minHeight: '22px' }}
             >
               {i.nom}
             </span>
@@ -573,7 +597,7 @@ export default function CVPreview({
           <div data-pdf-block="true" className="flex flex-col items-center text-center mb-2">
             {renderPhoto(110, 'border-4 border-white/30', 'mb-3')}
             <h1 className="text-xl font-extrabold leading-snug">{cv.personnel.nomComplet}</h1>
-            <p className="text-xs font-semibold mt-1 opacity-95" style={{ color: secondary }}>
+            <p className="text-xs font-semibold mt-1 opacity-95 leading-snug" style={{ color: secondary }}>
               {cv.personnel.titrePoste}
             </p>
           </div>
@@ -715,7 +739,11 @@ export default function CVPreview({
 
         <div className={spacingClass}>
           {cv.personnel.resume && (
-            <div data-pdf-block="true" className="p-4 rounded-lg bg-slate-50 border-l-4" style={{ borderColor: secondary }}>
+            <div
+              data-pdf-block="true"
+              className="p-4 rounded-lg bg-slate-50 border-l-4"
+              style={{ borderColor: secondary }}
+            >
               <p className="text-xs text-slate-700 italic leading-relaxed">{cv.personnel.resume}</p>
             </div>
           )}

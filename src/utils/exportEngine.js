@@ -56,7 +56,6 @@ async function normalizeImagesInClone(cloneRoot) {
     const natH = img.naturalHeight;
     if (!natW || !natH || !boxW || !boxH) continue;
 
-    // If aspect ratios differ, center-crop onto an offscreen canvas matching boxW:boxH
     const boxRatio = boxW / boxH;
     const natRatio = natW / natH;
     if (Math.abs(boxRatio - natRatio) > 0.04) {
@@ -90,17 +89,17 @@ async function normalizeImagesInClone(cloneRoot) {
 }
 
 /**
- * Smart Paginator: Prevents blocks from being sliced across A4 page boundaries (multiples of 1123px)
+ * Smart Paginator:
+ * - Prevents section headers ([data-pdf-heading="true"]) from being orphaned at the bottom of a page
+ * - Prevents content blocks ([data-pdf-block="true"]) from being sliced across A4 page boundaries
  */
 function applySmartPageBreaksToClone(cloneEl, fitOnePage = false) {
   const totalRawHeight = cloneEl.scrollHeight;
 
-  // If CV fits on 1 page (or is within 45px of 1 page, or user asked for 1-page fit)
-  if (fitOnePage || totalRawHeight <= A4_HEIGHT_PX + 45) {
+  if (fitOnePage || totalRawHeight <= A4_HEIGHT_PX + 40) {
     if (totalRawHeight > A4_HEIGHT_PX) {
-      // Gently compact vertical spacing to fit cleanly on 1 A4 page without squishing aspect ratio
       const ratio = A4_HEIGHT_PX / totalRawHeight;
-      if (ratio >= 0.82) {
+      if (ratio >= 0.80) {
         cloneEl.style.zoom = `${ratio}`;
       }
     }
@@ -110,44 +109,48 @@ function applySmartPageBreaksToClone(cloneEl, fitOnePage = false) {
     return 1;
   }
 
-  // Multi-page layout: inspect all [data-pdf-block="true"] elements in document order
   const PAGE_PADDING_TOP = 36;
-  const PAGE_PADDING_BOTTOM = 28;
-  const blocks = Array.from(cloneEl.querySelectorAll('[data-pdf-block="true"]'));
+  const PAGE_PADDING_BOTTOM = 32;
+  const HEADING_MIN_SPACE_BELOW = 145; // Prevents orphaned section titles at bottom of page
 
-  for (const block of blocks) {
+  const elements = Array.from(
+    cloneEl.querySelectorAll('[data-pdf-heading="true"], [data-pdf-block="true"]')
+  );
+
+  for (const el of elements) {
     const rootRect = cloneEl.getBoundingClientRect();
-    const blockRect = block.getBoundingClientRect();
-    const topRel = blockRect.top - rootRect.top;
-    const bottomRel = blockRect.bottom - rootRect.top;
-    const blockHeight = blockRect.height;
+    const elRect = el.getBoundingClientRect();
+    const topRel = elRect.top - rootRect.top;
+    const bottomRel = elRect.bottom - rootRect.top;
+    const elHeight = elRect.height;
 
-    // Skip huge blocks taller than half a page
-    if (blockHeight > A4_HEIGHT_PX * 0.65) continue;
+    if (elHeight > A4_HEIGHT_PX * 0.65) continue;
 
     const startPage = Math.floor(topRel / A4_HEIGHT_PX);
     const endPage = Math.floor((bottomRel - 2) / A4_HEIGHT_PX);
-    const pageBottomLimit = (startPage + 1) * A4_HEIGHT_PX - PAGE_PADDING_BOTTOM;
+    const isHeading = el.getAttribute('data-pdf-heading') === 'true';
+
+    const pageBottomLimit = isHeading
+      ? (startPage + 1) * A4_HEIGHT_PX - HEADING_MIN_SPACE_BELOW
+      : (startPage + 1) * A4_HEIGHT_PX - PAGE_PADDING_BOTTOM;
 
     if (endPage > startPage || bottomRel > pageBottomLimit) {
       const nextPageStart = (startPage + 1) * A4_HEIGHT_PX + PAGE_PADDING_TOP;
       const pushDownPx = Math.ceil(nextPageStart - topRel);
-      if (pushDownPx > 0 && pushDownPx < A4_HEIGHT_PX * 0.5) {
-        const currentMarginTop = parseFloat(window.getComputedStyle(block).marginTop) || 0;
-        block.style.marginTop = `${currentMarginTop + pushDownPx}px`;
+      if (pushDownPx > 0 && pushDownPx < A4_HEIGHT_PX * 0.55) {
+        const currentMarginTop = parseFloat(window.getComputedStyle(el).marginTop) || 0;
+        el.style.marginTop = `${currentMarginTop + pushDownPx}px`;
       }
     }
   }
 
-  // Recalculate total pages after smart page breaks
   const finalHeight = cloneEl.scrollHeight;
-  const numPages = Math.max(1, Math.ceil((finalHeight - 10) / A4_HEIGHT_PX));
+  const numPages = Math.max(1, Math.ceil((finalHeight - 12) / A4_HEIGHT_PX));
   const exactTotalHeight = numPages * A4_HEIGHT_PX;
 
   cloneEl.style.minHeight = `${exactTotalHeight}px`;
   cloneEl.style.height = `${exactTotalHeight}px`;
 
-  // Ensure any sidebar stretches across all pages
   const sidebar = cloneEl.querySelector('[data-cv-sidebar="true"]');
   if (sidebar) {
     sidebar.style.minHeight = `${exactTotalHeight}px`;
@@ -158,9 +161,9 @@ function applySmartPageBreaksToClone(cloneEl, fitOnePage = false) {
 
 /**
  * Render `#cv-print-area` in an isolated, unscaled offscreen 794px container
- * so parent CSS `transform: scale(zoom)` never distorts text spacing or photos.
+ * at 3.5x High-DPI (2779px width = 335 DPI print quality) with fixed baseline metrics.
  */
-async function captureCVCanvas(elementId = 'cv-print-area', scale = 2.5, options = {}) {
+async function captureCVCanvas(elementId = 'cv-print-area', scale = 3.5, options = {}) {
   const sourceEl = document.getElementById(elementId);
   if (!sourceEl) throw new Error('Zone de rendu du CV introuvable.');
 
@@ -168,7 +171,6 @@ async function captureCVCanvas(elementId = 'cv-print-area', scale = 2.5, options
     await document.fonts.ready;
   }
 
-  // Create off-screen unscaled host attached directly to document.body
   const host = document.createElement('div');
   host.style.position = 'fixed';
   host.style.left = '-10000px';
@@ -194,13 +196,9 @@ async function captureCVCanvas(elementId = 'cv-print-area', scale = 2.5, options
   document.body.appendChild(host);
 
   try {
-    // 1. Ensure all images are loaded and center-cropped to exact aspect ratio
     await normalizeImagesInClone(clone);
-
-    // 2. Apply smart pagination so no block is cut across page breaks
     const numPages = applySmartPageBreaksToClone(clone, Boolean(options.fitOnePage));
 
-    // Wait 1 frame for layout reflow
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     const canvas = await html2canvas(clone, {
@@ -212,6 +210,15 @@ async function captureCVCanvas(elementId = 'cv-print-area', scale = 2.5, options
       allowTaint: true,
       backgroundColor: '#ffffff',
       logging: false,
+      onclone: (clonedDoc) => {
+        // Guarantee inline-block on <img> inside html2canvas's cloned document so FontMetrics baseline is 100% exact
+        const styleEl = clonedDoc.createElement('style');
+        styleEl.textContent = `
+          img { display: inline-block !important; }
+          #cv-print-area img { display: block !important; }
+        `;
+        clonedDoc.head.appendChild(styleEl);
+      },
     });
 
     return { canvas, numPages, scale };
@@ -221,10 +228,10 @@ async function captureCVCanvas(elementId = 'cv-print-area', scale = 2.5, options
 }
 
 /**
- * 1. Export PDF (.pdf) with Smart Page-Break Slicing & Zero Photo Distortion
+ * 1. Export PDF (.pdf) — Lossless PNG 3.5x High-DPI (Zero JPEG Blur, Exact Baseline Alignment & Smart Page Breaks)
  */
 export async function exportToPDF(cv, elementId = 'cv-print-area', suffix = 'CV', options = {}) {
-  const { canvas, numPages, scale } = await captureCVCanvas(elementId, 2.5, options);
+  const { canvas, numPages, scale } = await captureCVCanvas(elementId, 3.5, options);
 
   const pdf = new jsPDF({
     orientation: 'portrait',
@@ -236,8 +243,8 @@ export async function exportToPDF(cv, elementId = 'cv-print-area', suffix = 'CV'
   const pdfWidthMm = pdf.internal.pageSize.getWidth(); // 210
   const pdfHeightMm = pdf.internal.pageSize.getHeight(); // 297
 
-  const pageWidthPx = A4_WIDTH_PX * scale;
-  const pageHeightPx = A4_HEIGHT_PX * scale;
+  const pageWidthPx = Math.round(A4_WIDTH_PX * scale);
+  const pageHeightPx = Math.round(A4_HEIGHT_PX * scale);
 
   for (let pageIndex = 0; pageIndex < numPages; pageIndex++) {
     if (pageIndex > 0) {
@@ -248,6 +255,8 @@ export async function exportToPDF(cv, elementId = 'cv-print-area', suffix = 'CV'
     pageCanvas.width = pageWidthPx;
     pageCanvas.height = pageHeightPx;
     const ctx = pageCanvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, pageWidthPx, pageHeightPx);
@@ -269,8 +278,9 @@ export async function exportToPDF(cv, elementId = 'cv-print-area', suffix = 'CV'
       );
     }
 
-    const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.98);
-    pdf.addImage(pageImgData, 'JPEG', 0, 0, pdfWidthMm, pdfHeightMm);
+    // Use lossless PNG instead of lossy JPEG so text edges are 100% razor-sharp with zero halo/blur
+    const pageImgData = pageCanvas.toDataURL('image/png', 1.0);
+    pdf.addImage(pageImgData, 'PNG', 0, 0, pdfWidthMm, pdfHeightMm, undefined, 'FAST');
   }
 
   pdf.save(`${getFileSlug(cv, suffix)}.pdf`);
@@ -587,7 +597,7 @@ export async function exportToDOCX(cv) {
  * 3. Export Image Formats : JPEG (.jpg), PNG (.png), WebP (.webp)
  */
 export async function exportToImage(cv, format = 'jpeg', elementId = 'cv-print-area') {
-  const { canvas } = await captureCVCanvas(elementId, 3.0);
+  const { canvas } = await captureCVCanvas(elementId, 3.5);
   const mimeMap = {
     jpeg: 'image/jpeg',
     jpg: 'image/jpeg',
@@ -609,7 +619,7 @@ export async function exportToImage(cv, format = 'jpeg', elementId = 'cv-print-a
       if (blob) saveAs(blob, `${getFileSlug(cv)}.${ext}`);
     },
     mime,
-    0.98
+    1.0
   );
 }
 
@@ -617,7 +627,7 @@ export async function exportToImage(cv, format = 'jpeg', elementId = 'cv-print-a
  * 4. Export SVG Vector (.svg)
  */
 export async function exportToSVG(cv, elementId = 'cv-print-area') {
-  const { canvas, numPages } = await captureCVCanvas(elementId, 2.5);
+  const { canvas, numPages } = await captureCVCanvas(elementId, 3.0);
   const dataUrl = canvas.toDataURL('image/png');
   const totalHeight = A4_HEIGHT_PX * numPages;
   const svgContent = `<?xml version="1.0" encoding="UTF-8" standalone="no"?>
