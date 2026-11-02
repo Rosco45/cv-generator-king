@@ -1,0 +1,17 @@
+{
+  "name": "CV Generator King",
+  "short_name": "CV King",
+  "description": "Générateur et Éditeur Royal de CV - Créez, importez, analysez et modifiez vos CV par instructions en PDF, DOCX, JPEG, PNG, SVG, HTML.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e40af",
+  "icons": [
+    {
+      "src": "/logo-mascot.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

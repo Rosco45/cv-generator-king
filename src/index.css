@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom Royal Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #d4af37;
+}
+
+/* A4 Paper Dimensions & Print Rules */
+.a4-sheet {
+  width: 210mm;
+  min-height: 297mm;
+  background: white;
+  color: #1e293b;
+  box-sizing: border-box;
+  position: relative;
+  transform-origin: top center;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #cv-print-area,
+  #cv-print-area * {
+    visibility: visible;
+  }
+  #cv-print-area {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0;
+    padding: 0;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+}
