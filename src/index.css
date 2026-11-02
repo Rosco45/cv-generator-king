@@ -24,18 +24,140 @@
   background: #d4af37;
 }
 
+.theme-light ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+.theme-light ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+.theme-light ::-webkit-scrollbar-thumb:hover {
+  background: #1e40af;
+}
+
+/* ============================================================================
+   DAY MODE (LIGHT THEME) OVERRIDES FOR APP UI
+   Note: Never affects #cv-print-area so the CV paper stays true to its design!
+   ============================================================================ */
+.theme-light {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+.theme-light header {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.05);
+}
+
+.theme-light .ui-panel {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .ui-tabs-bar {
+  background-color: #f1f5f9 !important;
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .ui-preview-viewport {
+  background-color: #e2e8f0 !important;
+  background-image: radial-gradient(#94a3b8 1px, transparent 1px) !important;
+}
+
+.theme-light .ui-preview-toolbar {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+}
+
+.theme-light .bg-slate-900,
+.theme-light .bg-slate-900\/95,
+.theme-light .bg-slate-900\/80,
+.theme-light .bg-slate-900\/60 {
+  background-color: #ffffff !important;
+}
+
+.theme-light .bg-slate-800,
+.theme-light .bg-slate-800\/90,
+.theme-light .bg-slate-800\/80,
+.theme-light .bg-slate-800\/70,
+.theme-light .bg-slate-800\/60,
+.theme-light .bg-slate-800\/50 {
+  background-color: #f8fafc !important;
+}
+
+.theme-light .border-slate-800,
+.theme-light .border-slate-700,
+.theme-light .border-slate-700\/80 {
+  border-color: #cbd5e1 !important;
+}
+
+.theme-light .text-slate-100,
+.theme-light .text-slate-200,
+.theme-light .text-white:not(.keep-white) {
+  color: #0f172a !important;
+}
+
+.theme-light .text-slate-300 {
+  color: #334155 !important;
+}
+
+.theme-light .text-slate-400 {
+  color: #475569 !important;
+}
+
+.theme-light .text-amber-300,
+.theme-light .text-amber-400 {
+  color: #b45309 !important;
+}
+
+.theme-light input:not([type="color"]),
+.theme-light textarea,
+.theme-light select {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.theme-light input:not([type="color"]):focus,
+.theme-light textarea:focus,
+.theme-light select:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Preserve CV paper colors regardless of Light/Dark UI theme */
+#cv-print-area .text-white {
+  color: #ffffff !important;
+}
+
 /* A4 Paper Dimensions & Print Rules */
 .a4-sheet {
-  width: 210mm;
-  min-height: 297mm;
+  width: 794px;
+  min-height: 1123px;
   background: white;
   color: #1e293b;
   box-sizing: border-box;
   position: relative;
   transform-origin: top center;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 0;
 }
 
 @media print {
+  html,
+  body {
+    width: 210mm;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   body * {
     visibility: hidden;
   }
@@ -44,13 +166,12 @@
     visibility: visible;
   }
   #cv-print-area {
-    position: fixed;
+    position: absolute;
     left: 0;
     top: 0;
-    width: 210mm;
-    min-height: 297mm;
-    margin: 0;
-    padding: 0;
+    width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
     box-shadow: none !important;
     transform: none !important;
   }

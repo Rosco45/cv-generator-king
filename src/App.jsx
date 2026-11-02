@@ -7,7 +7,6 @@ import {
   Download,
   Wand2,
   Sliders,
-  FileText,
   CheckCircle2,
   AlertCircle,
   Plus,
@@ -17,23 +16,19 @@ import {
   Undo2,
   Redo2,
   Globe,
-  Layers,
   Target,
   MailCheck,
   History,
-  Image as ImageIcon,
-  FileCode,
-  FileSpreadsheet,
   ZoomIn,
   ZoomOut,
-  Eye,
   Edit3,
   Copy,
   Send,
   KeyRound,
-  Check,
   X,
-  RefreshCw,
+  Sun,
+  Moon,
+  Printer,
 } from 'lucide-react';
 import KingLogo from './components/KingLogo';
 import CVPreview from './components/CVPreview';
@@ -60,6 +55,7 @@ import { calculateATSScore } from './utils/atsAnalyzer';
 
 const STORAGE_KEY = 'cv_generator_king_state_v1';
 const VERSIONS_KEY = 'cv_generator_king_versions_v1';
+const THEME_KEY = 'cv_generator_king_theme_v1';
 
 const QUICK_INSTRUCTIONS = [
   "Optimise mon profil professionnel pour le rendre plus percutant et orienté résultats",
@@ -70,6 +66,39 @@ const QUICK_INSTRUCTIONS = [
   "Active le QR code sur le CV",
 ];
 
+/**
+ * Center-crop uploaded profile photo to a clean 500x500 square PNG DataURL right on upload
+ * so it never gets squished or stretched in any template or export format.
+ */
+function cropImageFileToSquareDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const size = Math.min(img.naturalWidth || img.width, img.naturalHeight || img.height);
+        if (!size) {
+          resolve(reader.result);
+          return;
+        }
+        const outSize = 500;
+        const canvas = document.createElement('canvas');
+        canvas.width = outSize;
+        canvas.height = outSize;
+        const ctx = canvas.getContext('2d');
+        const sx = ((img.naturalWidth || img.width) - size) / 2;
+        const sy = ((img.naturalHeight || img.height) - size) / 2;
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, outSize, outSize);
+        resolve(canvas.toDataURL('image/png'));
+      };
+      img.onerror = () => resolve(reader.result);
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function App() {
   // Load initial CV from localStorage or DEFAULT_CV
   const [cv, setCv] = useState(() => {
@@ -78,6 +107,15 @@ export default function App() {
       return saved ? JSON.parse(saved) : DEFAULT_CV;
     } catch {
       return DEFAULT_CV;
+    }
+  });
+
+  // Day / Night Theme state ('dark' | 'light')
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem(THEME_KEY) || 'dark';
+    } catch {
+      return 'dark';
     }
   });
 
@@ -135,7 +173,21 @@ export default function App() {
   const fileInputRef = useRef(null);
   const photoInputRef = useRef(null);
 
-  // Auto-save to localStorage
+  // Persist theme & apply class to body
+  useEffect(() => {
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // ignore
+    }
+    if (theme === 'light') {
+      document.body.classList.add('theme-light');
+    } else {
+      document.body.classList.remove('theme-light');
+    }
+  }, [theme]);
+
+  // Auto-save CV to localStorage
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cv));
@@ -155,6 +207,14 @@ export default function App() {
   const showNotification = (msg, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4000);
+  };
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      showNotification(next === 'light' ? '☀️ Mode Jour activé' : '🌙 Mode Nuit activé');
+      return next;
+    });
   };
 
   // Wrapper to update CV with Undo History
@@ -265,19 +325,22 @@ export default function App() {
     }, false);
   };
 
-  // Photo Upload Handler
-  const handlePhotoUpload = (e) => {
+  // Photo Upload Handler (with automatic 1:1 square center-cropping so it never squishes)
+  const handlePhotoUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
+    try {
+      const squareDataUrl = await cropImageFileToSquareDataUrl(file);
       updateCV((prev) => ({
         ...prev,
-        personnel: { ...prev.personnel, photo: reader.result },
+        personnel: { ...prev.personnel, photo: squareDataUrl },
       }));
-      showNotification('Photo de profil mise à jour !');
-    };
-    reader.readAsDataURL(file);
+      showNotification('Photo de profil recadrée au format carré et mise à jour !');
+    } catch {
+      showNotification('Erreur lors du chargement de la photo', 'error');
+    } finally {
+      if (photoInputRef.current) photoInputRef.current.value = '';
+    }
   };
 
   // Multi-format Export Handler
@@ -286,7 +349,14 @@ export default function App() {
     try {
       const docType = previewMode === 'cover_letter' ? 'Lettre_Motivation' : 'CV';
       if (format === 'pdf') {
-        await exportToPDF(cv, 'cv-print-area', docType);
+        await exportToPDF(cv, 'cv-print-area', docType, { fitOnePage: false });
+      } else if (format === 'pdf_onepage') {
+        await exportToPDF(cv, 'cv-print-area', `${docType}_1Page`, { fitOnePage: true });
+      } else if (format === 'pdf_print') {
+        setShowExportModal(false);
+        setTimeout(() => window.print(), 150);
+        setIsExporting(false);
+        return;
       } else if (format === 'docx') {
         await exportToDOCX(cv);
       } else if (['jpeg', 'png', 'webp'].includes(format)) {
@@ -300,11 +370,11 @@ export default function App() {
       } else if (format === 'json') {
         exportToJSON(cv);
       }
-      showNotification(`Export ${format.toUpperCase()} téléchargé avec succès !`);
+      showNotification(`Export ${format.toUpperCase().replace('_ONEPAGE', ' (1 Page)')} téléchargé avec succès !`);
       setShowExportModal(false);
     } catch (err) {
       console.error(err);
-      showNotification(`Erreur lors de l'export ${format.toUpperCase()} : ${err.message}`, 'error');
+      showNotification(`Erreur lors de l'export : ${err.message}`, 'error');
     } finally {
       setIsExporting(false);
     }
@@ -369,7 +439,10 @@ export default function App() {
 
   // Save current CV as a new version snapshot
   const handleSaveVersionSnapshot = () => {
-    const label = prompt('Nom de cette version du CV :', `${cv.personnel.nomComplet || 'CV'} - Version ${savedVersions.length + 1}`);
+    const label = prompt(
+      'Nom de cette version du CV :',
+      `${cv.personnel.nomComplet || 'CV'} - Version ${savedVersions.length + 1}`
+    );
     if (!label) return;
     const snapshot = {
       ...JSON.parse(JSON.stringify(cv)),
@@ -382,7 +455,11 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div
+      className={`min-h-screen flex flex-col transition-colors duration-200 ${
+        theme === 'light' ? 'theme-light bg-slate-50 text-slate-900' : 'bg-slate-950 text-slate-100'
+      }`}
+    >
       {/* Hidden File Input for Universal CV Import */}
       <input
         ref={fileInputRef}
@@ -398,8 +475,8 @@ export default function App() {
         <div
           className={`fixed bottom-5 right-5 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border backdrop-blur-md transition-all ${
             toast.type === 'error'
-              ? 'bg-red-950/90 border-red-500 text-red-100'
-              : 'bg-slate-900/95 border-amber-400/60 text-amber-100'
+              ? 'bg-red-950/95 border-red-500 text-red-100 keep-white'
+              : 'bg-slate-900/95 border-amber-400/60 text-amber-100 keep-white'
           }`}
         >
           {toast.type === 'error' ? (
@@ -407,7 +484,7 @@ export default function App() {
           ) : (
             <Crown size={19} className="text-amber-400 shrink-0" />
           )}
-          <span className="text-sm font-medium">{toast.msg}</span>
+          <span className="text-sm font-medium keep-white">{toast.msg}</span>
         </div>
       )}
 
@@ -420,10 +497,16 @@ export default function App() {
           <KingLogo size={46} />
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-amber-200 to-amber-400 bg-clip-text text-transparent">
+              <span
+                className={`font-extrabold text-lg tracking-tight ${
+                  theme === 'light'
+                    ? 'text-blue-900'
+                    : 'bg-gradient-to-r from-white via-amber-200 to-amber-400 bg-clip-text text-transparent'
+                }`}
+              >
                 CV Generator King
               </span>
-              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">
                 Royal Edition
               </span>
             </div>
@@ -433,7 +516,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* Center Quick Actions : Mode Chooser, Undo/Redo, Language Translation, ATS Badge */}
+        {/* Center Quick Actions : Mode Chooser, Undo/Redo, Language Translation, ATS Badge, Day/Night Mode */}
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowWelcomeModal(true)}
@@ -475,7 +558,7 @@ export default function App() {
 
           {/* 1-Click Language Translator */}
           <div className="flex items-center gap-1 bg-slate-800/80 rounded-xl border border-slate-700 px-2 py-1">
-            <Globe size={13} className="text-blue-400" />
+            <Globe size={13} className="text-blue-500" />
             {['fr', 'en', 'es', 'de'].map((lang) => (
               <button
                 key={lang}
@@ -486,8 +569,8 @@ export default function App() {
                 }}
                 className={`px-1.5 py-0.5 rounded text-[11px] font-bold uppercase transition ${
                   (cv.langueCV || 'fr') === lang
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-400 hover:text-white'
+                    ? 'bg-blue-600 text-white keep-white'
+                    : 'text-slate-400 hover:text-blue-500'
                 }`}
                 title={`Traduire le CV en ${lang.toUpperCase()}`}
               >
@@ -501,11 +584,34 @@ export default function App() {
             onClick={() => setActiveTab('ats')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 hover:border-emerald-500/50 text-xs font-bold transition"
           >
-            <Target size={14} className={atsResult.score >= 80 ? 'text-emerald-400' : 'text-amber-400'} />
+            <Target size={14} className={atsResult.score >= 80 ? 'text-emerald-500' : 'text-amber-500'} />
             <span>ATS :</span>
-            <span className={atsResult.score >= 80 ? 'text-emerald-400' : 'text-amber-400'}>
+            <span className={atsResult.score >= 80 ? 'text-emerald-500' : 'text-amber-500'}>
               {atsResult.score}/100
             </span>
+          </button>
+
+          {/* DAY / NIGHT THEME TOGGLE BUTTON */}
+          <button
+            onClick={toggleTheme}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition ${
+              theme === 'light'
+                ? 'bg-amber-100 border-amber-300 text-amber-900 hover:bg-amber-200'
+                : 'bg-slate-800 border-slate-700 text-amber-300 hover:bg-slate-700'
+            }`}
+            title={theme === 'dark' ? 'Passer en Mode Jour (Clair)' : 'Passer en Mode Nuit (Sombre)'}
+          >
+            {theme === 'dark' ? (
+              <>
+                <Sun size={15} className="text-amber-400" />
+                <span>Mode Jour</span>
+              </>
+            ) : (
+              <>
+                <Moon size={15} className="text-blue-700" />
+                <span>Mode Nuit</span>
+              </>
+            )}
           </button>
         </div>
 
@@ -514,10 +620,10 @@ export default function App() {
           <button
             onClick={() => handleExport('pdf')}
             disabled={isExporting}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white keep-white font-bold text-xs shadow-lg shadow-blue-600/25 transition"
           >
-            <Download size={15} />
-            <span>PDF Rapide</span>
+            <Download size={15} className="keep-white" />
+            <span className="keep-white">{isExporting ? 'Export...' : 'PDF Rapide'}</span>
           </button>
 
           <button
@@ -535,9 +641,9 @@ export default function App() {
       {/* ===================================================================== */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
         {/* LEFT COLUMN : NAVIGATION TABS + ACTIVE PANEL */}
-        <div className="lg:col-span-5 xl:col-span-5 flex flex-col border-r border-slate-800 bg-slate-900/60 h-[calc(100vh-65px)] overflow-hidden">
+        <div className="ui-panel lg:col-span-5 xl:col-span-5 flex flex-col border-r border-slate-800 bg-slate-900/60 h-[calc(100vh-65px)] overflow-hidden">
           {/* Primary Feature Tabs */}
-          <div className="grid grid-cols-6 gap-1 p-2 bg-slate-900 border-b border-slate-800 shrink-0">
+          <div className="ui-tabs-bar grid grid-cols-6 gap-1 p-2 bg-slate-900 border-b border-slate-800 shrink-0">
             {[
               { id: 'ai_import', label: 'Instructions IA', icon: Wand2, badge: 'King' },
               { id: 'edit', label: 'Éditer CV', icon: Edit3 },
@@ -554,7 +660,7 @@ export default function App() {
                   onClick={() => setActiveTab(t.id)}
                   className={`relative flex flex-col items-center justify-center py-2 px-1 rounded-xl text-[11px] font-semibold transition ${
                     active
-                      ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white shadow-md shadow-blue-900/40'
+                      ? 'bg-gradient-to-b from-blue-600 to-blue-700 text-white keep-white shadow-md shadow-blue-900/30'
                       : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/70'
                   }`}
                 >
@@ -563,8 +669,8 @@ export default function App() {
                       {t.badge}
                     </span>
                   )}
-                  <Icon size={16} className="mb-1" />
-                  <span className="truncate max-w-full">{t.label}</span>
+                  <Icon size={16} className={`mb-1 ${active ? 'keep-white' : ''}`} />
+                  <span className={`truncate max-w-full ${active ? 'keep-white' : ''}`}>{t.label}</span>
                 </button>
               );
             })}
@@ -578,10 +684,16 @@ export default function App() {
             {activeTab === 'ai_import' && (
               <div className="space-y-5">
                 {/* Banner Card : Upload Existing CV or Create New */}
-                <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-950/90 via-slate-900 to-amber-950/30 border border-amber-500/30 shadow-lg">
+                <div
+                  className={`p-4 rounded-2xl border shadow-lg ${
+                    theme === 'light'
+                      ? 'bg-gradient-to-br from-blue-50 via-white to-amber-50 border-amber-400/60'
+                      : 'bg-gradient-to-br from-blue-950/90 via-slate-900 to-amber-950/30 border-amber-500/30'
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2.5">
-                      <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                      <div className="p-2 rounded-xl bg-amber-500/20 text-amber-500 border border-amber-500/30">
                         <Crown size={20} />
                       </div>
                       <div>
@@ -589,7 +701,7 @@ export default function App() {
                           Modifier un CV Existant par Instructions
                         </h2>
                         <p className="text-xs text-slate-300 mt-0.5">
-                          Importez un CV (PDF, Word DOCX, JPEG, PNG...) : l'application analyse son design et son
+                          Importez un CV (PDF, Word DOCX, JPEG, PNG...) : l&apos;application analyse son design et son
                           contenu, puis le modifie selon vos instructions !
                         </p>
                       </div>
@@ -599,11 +711,11 @@ export default function App() {
                   {/* Drag & Drop / Upload Zone */}
                   <div
                     onClick={() => fileInputRef.current?.click()}
-                    className="mt-4 border-2 border-dashed border-amber-400/50 hover:border-amber-400 rounded-xl p-4 text-center cursor-pointer bg-slate-900/60 hover:bg-slate-900 transition group"
+                    className="mt-4 border-2 border-dashed border-amber-500/50 hover:border-amber-500 rounded-xl p-4 text-center cursor-pointer bg-slate-900/60 hover:bg-slate-900 transition group"
                   >
                     <Upload
                       size={24}
-                      className="mx-auto text-amber-400 group-hover:scale-110 transition-transform mb-1.5"
+                      className="mx-auto text-amber-500 group-hover:scale-110 transition-transform mb-1.5"
                     />
                     <p className="text-xs font-bold text-white">
                       {isImporting
@@ -616,37 +728,36 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Imported CV Design DNA Report (shown whenever a CV was imported) */}
+                {/* Imported CV Design DNA Report */}
                 {cv.importedDesign && (
                   <div className="p-4 rounded-2xl bg-slate-800/80 border border-emerald-500/40 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 size={17} className="text-emerald-400" />
-                        <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                        <CheckCircle2 size={17} className="text-emerald-500" />
+                        <span className="text-xs font-bold text-emerald-500 uppercase tracking-wider">
                           Design Original Analysé : {cv.importedDesign.sourceFileName}
                         </span>
                       </div>
-                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold">
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-500 font-semibold">
                         Disposition : {cv.importedDesign.detectedLayout}
                       </span>
                     </div>
 
-                    {/* Extracted Colors & Mode Switcher */}
                     <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
                       <div className="flex items-center gap-2 text-xs text-slate-300">
                         <span>Palette extraite :</span>
                         <span
-                          className="w-5 h-5 rounded-full border border-white/40 inline-block"
+                          className="w-5 h-5 rounded-full border border-slate-400 inline-block"
                           style={{ backgroundColor: cv.importedDesign.primaryColor }}
                           title={`Couleur primaire : ${cv.importedDesign.primaryColor}`}
                         />
                         <span
-                          className="w-5 h-5 rounded-full border border-white/40 inline-block"
+                          className="w-5 h-5 rounded-full border border-slate-400 inline-block"
                           style={{ backgroundColor: cv.importedDesign.sidebarBg }}
                           title={`Couleur structure : ${cv.importedDesign.sidebarBg}`}
                         />
                         <span
-                          className="w-5 h-5 rounded-full border border-white/40 inline-block"
+                          className="w-5 h-5 rounded-full border border-slate-400 inline-block"
                           style={{ backgroundColor: cv.importedDesign.secondaryColor }}
                           title={`Accent : ${cv.importedDesign.secondaryColor}`}
                         />
@@ -667,7 +778,7 @@ export default function App() {
                             }
                             className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition ${
                               !cv.parametres.modeEditionDirecteSurOriginal
-                                ? 'bg-blue-600 text-white'
+                                ? 'bg-blue-600 text-white keep-white'
                                 : 'text-slate-400 hover:text-white'
                             }`}
                           >
@@ -694,13 +805,6 @@ export default function App() {
                         </div>
                       )}
                     </div>
-                    {cv.parametres.modeEditionDirecteSurOriginal && (
-                      <p className="text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20">
-                        💡 <strong>Mode Calque Original 100% actif :</strong> Vous visualisez le document original exact.
-                        Vous pouvez cliquer directement sur n'importe quel texte de l'aperçu à droite pour l'éditer, ou
-                        donner une instruction ci-dessous (ex: <em>Remplace "2022" par "2025"</em>).
-                      </p>
-                    )}
                   </div>
                 )}
 
@@ -713,7 +817,7 @@ export default function App() {
                     </label>
                     <button
                       onClick={() => setShowApiSettings(!showApiSettings)}
-                      className="text-[11px] text-slate-400 hover:text-amber-300 flex items-center gap-1"
+                      className="text-[11px] text-slate-400 hover:text-amber-400 flex items-center gap-1"
                     >
                       <KeyRound size={12} />
                       <span>
@@ -728,7 +832,7 @@ export default function App() {
                   {showApiSettings && (
                     <div className="p-3 rounded-xl bg-slate-900 border border-slate-700 space-y-2.5 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-200">Moteur d'exécution des instructions :</span>
+                        <span className="font-bold text-slate-200">Moteur d&apos;exécution des instructions :</span>
                         <select
                           value={apiConfig.provider}
                           onChange={(e) => setApiConfig({ ...apiConfig, provider: e.target.value })}
@@ -782,14 +886,14 @@ export default function App() {
                   {/* Quick 1-Click Instruction Chips */}
                   <div>
                     <p className="text-[11px] font-semibold text-slate-400 mb-1.5">
-                      Suggestions d'instructions rapides (cliquez pour appliquer) :
+                      Suggestions d&apos;instructions rapides (cliquez pour appliquer) :
                     </p>
                     <div className="flex flex-wrap gap-1.5">
                       {QUICK_INSTRUCTIONS.map((item, idx) => (
                         <button
                           key={idx}
                           onClick={() => handleExecuteInstruction(item)}
-                          className="text-left text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-700 text-slate-300 hover:text-amber-300 border border-slate-700/80 transition"
+                          className="text-left text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-700 text-slate-300 hover:text-amber-400 border border-slate-700/80 transition"
                         >
                           ✨ {item}
                         </button>
@@ -826,7 +930,6 @@ export default function App() {
             {/* =============================================================== */}
             {activeTab === 'edit' && (
               <div className="space-y-4">
-                {/* Sub-navigation for CV sections */}
                 <div className="flex flex-wrap gap-1.5 bg-slate-800/90 p-1.5 rounded-xl border border-slate-700">
                   {[
                     { id: 'profil', label: 'Profil & Photo' },
@@ -852,7 +955,6 @@ export default function App() {
                 {/* SUBTAB : PROFIL & PHOTO */}
                 {editSubTab === 'profil' && (
                   <div className="space-y-3 bg-slate-800/50 p-4 rounded-2xl border border-slate-800">
-                    {/* Photo Upload */}
                     <div className="flex items-center gap-4 pb-3 border-b border-slate-800">
                       {cv.personnel.photo ? (
                         <img
@@ -868,7 +970,7 @@ export default function App() {
                       <div className="flex flex-wrap gap-2">
                         <button
                           onClick={() => photoInputRef.current?.click()}
-                          className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"
+                          className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white keep-white text-xs font-bold"
                         >
                           {cv.personnel.photo ? 'Changer la photo' : 'Ajouter une photo'}
                         </button>
@@ -880,7 +982,7 @@ export default function App() {
                                 personnel: { ...prev.personnel, photo: '' },
                               }))
                             }
-                            className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-300 text-xs font-bold"
+                            className="px-3 py-1.5 rounded-xl bg-red-500/20 text-red-400 text-xs font-bold"
                           >
                             Supprimer
                           </button>
@@ -1067,9 +1169,10 @@ export default function App() {
                           ],
                         }))
                       }
-                      className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2"
+                      className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white keep-white font-bold text-xs flex items-center justify-center gap-2"
                     >
-                      <Plus size={15} /> Ajouter une expérience
+                      <Plus size={15} className="keep-white" />{' '}
+                      <span className="keep-white">Ajouter une expérience</span>
                     </button>
 
                     {cv.experiences.map((exp, idx) => (
@@ -1234,9 +1337,10 @@ export default function App() {
                           ],
                         }))
                       }
-                      className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs flex items-center justify-center gap-2"
+                      className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white keep-white font-bold text-xs flex items-center justify-center gap-2"
                     >
-                      <Plus size={15} /> Ajouter une formation
+                      <Plus size={15} className="keep-white" />{' '}
+                      <span className="keep-white">Ajouter une formation</span>
                     </button>
 
                     {cv.formations.map((form) => (
@@ -1368,7 +1472,7 @@ export default function App() {
                           }));
                           setNewSkillInput('');
                         }}
-                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"
+                        className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white keep-white text-xs font-bold"
                       >
                         Ajouter
                       </button>
@@ -1431,10 +1535,9 @@ export default function App() {
                   </div>
                 )}
 
-                {/* SUBTAB : LANGUES, CERTIFICATIONS, PROJETS, INTÉRÊTS */}
+                {/* SUBTAB : LANGUES, CERTIFICATIONS, INTÉRÊTS */}
                 {editSubTab === 'autres' && (
                   <div className="space-y-5">
-                    {/* Langues */}
                     <div className="p-4 rounded-2xl bg-slate-800/60 border border-slate-800 space-y-2.5">
                       <div className="flex justify-between items-center">
                         <h4 className="text-xs font-bold text-amber-400 uppercase">Langues</h4>
@@ -1448,7 +1551,7 @@ export default function App() {
                               ],
                             }))
                           }
-                          className="text-xs text-blue-400 font-bold flex items-center gap-1"
+                          className="text-xs text-blue-500 font-bold flex items-center gap-1"
                         >
                           <Plus size={13} /> Ajouter
                         </button>
@@ -1502,7 +1605,6 @@ export default function App() {
                       ))}
                     </div>
 
-                    {/* Certifications */}
                     <div className="p-4 rounded-2xl bg-slate-800/60 border border-slate-800 space-y-2.5">
                       <div className="flex justify-between items-center">
                         <h4 className="text-xs font-bold text-amber-400 uppercase">Certifications</h4>
@@ -1512,11 +1614,16 @@ export default function App() {
                               ...prev,
                               certifications: [
                                 ...prev.certifications,
-                                { id: 'cert-' + Date.now(), nom: 'Nom Certification', organisme: 'Organisme', date: '2025' },
+                                {
+                                  id: 'cert-' + Date.now(),
+                                  nom: 'Nom Certification',
+                                  organisme: 'Organisme',
+                                  date: '2025',
+                                },
                               ],
                             }))
                           }
-                          className="text-xs text-blue-400 font-bold flex items-center gap-1"
+                          className="text-xs text-blue-500 font-bold flex items-center gap-1"
                         >
                           <Plus size={13} /> Ajouter
                         </button>
@@ -1570,9 +1677,8 @@ export default function App() {
                       ))}
                     </div>
 
-                    {/* Centres d'intérêt */}
                     <div className="p-4 rounded-2xl bg-slate-800/60 border border-slate-800 space-y-2.5">
-                      <h4 className="text-xs font-bold text-amber-400 uppercase">Centres d'intérêt</h4>
+                      <h4 className="text-xs font-bold text-amber-400 uppercase">Centres d&apos;intérêt</h4>
                       <div className="flex gap-2">
                         <input
                           type="text"
@@ -1593,7 +1699,7 @@ export default function App() {
                             }));
                             setNewInterestInput('');
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold"
+                          className="px-3 py-1.5 rounded-lg bg-blue-600 text-white keep-white text-xs font-bold"
                         >
                           Ajouter
                         </button>
@@ -1630,7 +1736,6 @@ export default function App() {
             {/* =============================================================== */}
             {activeTab === 'design' && (
               <div className="space-y-5">
-                {/* Templates Grid */}
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 mb-2.5">
                     Modèles de Mise en Page (Templates)
@@ -1659,7 +1764,7 @@ export default function App() {
                         >
                           <div className="flex items-center justify-between">
                             <span className="text-xs font-bold">{tpl.name}</span>
-                            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+                            <span className="text-[9.5px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-bold">
                               {tpl.badge}
                             </span>
                           </div>
@@ -1690,7 +1795,7 @@ export default function App() {
                             },
                           }))
                         }
-                        className="text-[11px] text-emerald-400 hover:underline font-semibold"
+                        className="text-[11px] text-emerald-500 hover:underline font-semibold"
                       >
                         Restaurer les couleurs du CV importé
                       </button>
@@ -1717,8 +1822,14 @@ export default function App() {
                         className="p-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-amber-400 flex items-center gap-2 text-left transition"
                       >
                         <div className="flex -space-x-1 shrink-0">
-                          <span className="w-4 h-4 rounded-full border border-white/30" style={{ backgroundColor: pal.primary }} />
-                          <span className="w-4 h-4 rounded-full border border-white/30" style={{ backgroundColor: pal.secondary }} />
+                          <span
+                            className="w-4 h-4 rounded-full border border-white/30"
+                            style={{ backgroundColor: pal.primary }}
+                          />
+                          <span
+                            className="w-4 h-4 rounded-full border border-white/30"
+                            style={{ backgroundColor: pal.secondary }}
+                          />
                         </div>
                         <span className="text-[10.5px] font-semibold truncate">{pal.name}</span>
                       </button>
@@ -1750,7 +1861,7 @@ export default function App() {
                       />
                     </div>
                     <div>
-                      <label className="text-[10.5px] text-slate-400 block mb-1">Couleur d'Accent</label>
+                      <label className="text-[10.5px] text-slate-400 block mb-1">Couleur d&apos;Accent</label>
                       <input
                         type="color"
                         value={cv.parametres.couleurSecondaire}
@@ -1825,7 +1936,7 @@ export default function App() {
                         }
                         className="w-full mt-1 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
                       >
-                        <option value="compact">Compacte (Maximum d'infos)</option>
+                        <option value="compact">Compacte (Maximum d&apos;infos)</option>
                         <option value="normal">Normale (Équilibrée)</option>
                         <option value="large">Grande (Lecture confortable)</option>
                       </select>
@@ -1908,7 +2019,6 @@ export default function App() {
             {/* =============================================================== */}
             {activeTab === 'ats' && (
               <div className="space-y-5">
-                {/* Score Card */}
                 <div className="p-4 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-between gap-4">
                   <div>
                     <span className="text-xs font-extrabold uppercase tracking-wider text-amber-400">
@@ -1924,8 +2034,8 @@ export default function App() {
                   <div
                     className={`w-16 h-16 rounded-2xl flex items-center justify-center font-black text-xl border-2 shrink-0 ${
                       atsResult.score >= 80
-                        ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                        : 'bg-amber-500/20 border-amber-400 text-amber-300'
+                        ? 'bg-emerald-500/20 border-emerald-400 text-emerald-500'
+                        : 'bg-amber-500/20 border-amber-400 text-amber-500'
                     }`}
                   >
                     {atsResult.score}%
@@ -1935,7 +2045,7 @@ export default function App() {
                 {/* Job Offer Matcher */}
                 <div className="p-4 rounded-2xl bg-slate-800/60 border border-slate-800 space-y-3">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-amber-400">
-                    🎯 Comparer & Adapter à une Offre d'Emploi
+                    🎯 Comparer & Adapter à une Offre d&apos;Emploi
                   </h4>
                   <textarea
                     rows={4}
@@ -1948,20 +2058,20 @@ export default function App() {
                   {atsResult.jobMatch && (
                     <div className="space-y-3 pt-2">
                       <div className="flex items-center justify-between text-xs font-bold">
-                        <span>Compatibilité avec l'annonce :</span>
+                        <span>Compatibilité avec l&apos;annonce :</span>
                         <span className="text-amber-400">{atsResult.jobMatch.matchPercentage}%</span>
                       </div>
 
                       {atsResult.jobMatch.missingKeywords.length > 0 && (
                         <div>
                           <p className="text-[11px] text-slate-400 mb-1.5">
-                            Mots-clés de l'offre absents de votre CV :
+                            Mots-clés de l&apos;offre absents de votre CV :
                           </p>
                           <div className="flex flex-wrap gap-1.5 mb-2.5">
                             {atsResult.jobMatch.missingKeywords.map((kw, i) => (
                               <span
                                 key={i}
-                                className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-semibold"
+                                className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-400 text-[11px] font-semibold"
                               >
                                 + {kw}
                               </span>
@@ -1986,14 +2096,14 @@ export default function App() {
                       key={chk.id}
                       className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
                         chk.passed
-                          ? 'bg-emerald-950/20 border-emerald-500/30 text-slate-200'
-                          : 'bg-amber-950/20 border-amber-500/30 text-slate-200'
+                          ? 'bg-emerald-950/10 border-emerald-500/30 text-slate-200'
+                          : 'bg-amber-950/10 border-amber-500/30 text-slate-200'
                       }`}
                     >
                       {chk.passed ? (
-                        <CheckCircle2 size={16} className="text-emerald-400 shrink-0 mt-0.5" />
+                        <CheckCircle2 size={16} className="text-emerald-500 shrink-0 mt-0.5" />
                       ) : (
-                        <AlertCircle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                        <AlertCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
                       )}
                       <div>
                         <div className="font-bold">{chk.label}</div>
@@ -2016,7 +2126,7 @@ export default function App() {
                       Lettre de Motivation Assortie
                     </h3>
                     <p className="text-[11px] text-slate-300 mt-0.5">
-                      Reprend automatiquement le design, l'en-tête et les couleurs de votre CV.
+                      Reprend automatiquement le design, l&apos;en-tête et les couleurs de votre CV.
                     </p>
                   </div>
                   <button
@@ -2032,7 +2142,7 @@ export default function App() {
                     onClick={() => setPreviewMode('cover_letter')}
                     className={`flex-1 py-2 rounded-xl text-xs font-bold border ${
                       previewMode === 'cover_letter'
-                        ? 'bg-blue-600 border-blue-500 text-white'
+                        ? 'bg-blue-600 border-blue-500 text-white keep-white'
                         : 'bg-slate-800 border-slate-700 text-slate-300'
                     }`}
                   >
@@ -2042,7 +2152,7 @@ export default function App() {
                     onClick={() => setPreviewMode('cv')}
                     className={`flex-1 py-2 rounded-xl text-xs font-bold border ${
                       previewMode === 'cv'
-                        ? 'bg-blue-600 border-blue-500 text-white'
+                        ? 'bg-blue-600 border-blue-500 text-white keep-white'
                         : 'bg-slate-800 border-slate-700 text-slate-300'
                     }`}
                   >
@@ -2174,7 +2284,7 @@ export default function App() {
                             updateCV(ver, true);
                             showNotification(`Version « ${ver.versionName} » chargée !`);
                           }}
-                          className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold"
+                          className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-xs font-bold"
                         >
                           Charger
                         </button>
@@ -2207,10 +2317,10 @@ export default function App() {
                         className="w-full p-3 rounded-xl bg-slate-800/50 hover:bg-slate-800 border border-slate-700 text-left flex items-center justify-between transition"
                       >
                         <div>
-                          <div className="text-xs font-bold text-amber-300">{preset.label}</div>
+                          <div className="text-xs font-bold text-amber-400">{preset.label}</div>
                           <div className="text-[11px] text-slate-400">{preset.cv.personnel.nomComplet}</div>
                         </div>
-                        <span className="text-xs text-blue-400 font-semibold">Utiliser →</span>
+                        <span className="text-xs text-blue-500 font-semibold">Utiliser →</span>
                       </button>
                     ))}
                   </div>
@@ -2223,14 +2333,16 @@ export default function App() {
         {/* =================================================================== */}
         {/* RIGHT COLUMN : LIVE INTERACTIVE A4 PREVIEW */}
         {/* =================================================================== */}
-        <div className="lg:col-span-7 xl:col-span-7 bg-slate-950 flex flex-col h-[calc(100vh-65px)] overflow-hidden">
+        <div className="ui-preview-viewport lg:col-span-7 xl:col-span-7 bg-slate-950 flex flex-col h-[calc(100vh-65px)] overflow-hidden">
           {/* Preview Toolbar */}
-          <div className="px-4 py-2 bg-slate-900/80 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="ui-preview-toolbar px-4 py-2 bg-slate-900/80 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 shrink-0">
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPreviewMode('cv')}
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
-                  previewMode === 'cv' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  previewMode === 'cv'
+                    ? 'bg-blue-600 text-white keep-white'
+                    : 'text-slate-400 hover:text-blue-500'
                 }`}
               >
                 📄 Aperçu du CV
@@ -2238,7 +2350,9 @@ export default function App() {
               <button
                 onClick={() => setPreviewMode('cover_letter')}
                 className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
-                  previewMode === 'cover_letter' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                  previewMode === 'cover_letter'
+                    ? 'bg-blue-600 text-white keep-white'
+                    : 'text-slate-400 hover:text-blue-500'
                 }`}
               >
                 ✉️ Lettre de Motivation
@@ -2258,7 +2372,7 @@ export default function App() {
                   className={`px-3 py-1 rounded-lg text-xs font-bold border transition ${
                     cv.parametres.modeEditionDirecteSurOriginal
                       ? 'bg-amber-500 text-slate-950 border-amber-400'
-                      : 'bg-slate-800 text-amber-300 border-amber-500/40'
+                      : 'bg-slate-800 text-amber-400 border-amber-500/40'
                   }`}
                 >
                   {cv.parametres.modeEditionDirecteSurOriginal
@@ -2294,15 +2408,11 @@ export default function App() {
               style={{
                 transform: `scale(${zoom})`,
                 transformOrigin: 'top center',
-                marginBottom: `${(zoom - 1) * 297}mm`,
+                marginBottom: `${(zoom - 1) * 1123}px`,
               }}
               className="transition-transform duration-150"
             >
-              <CVPreview
-                cv={cv}
-                previewMode={previewMode}
-                onUpdateTextBlock={handleUpdateTextBlock}
-              />
+              <CVPreview cv={cv} previewMode={previewMode} onUpdateTextBlock={handleUpdateTextBlock} />
             </div>
           </div>
         </div>
@@ -2326,17 +2436,16 @@ export default function App() {
               <div>
                 <h2 className="text-2xl font-black text-white">Bienvenue sur CV Generator King 👑</h2>
                 <p className="text-xs text-slate-300 mt-1">
-                  Que souhaitez-vous faire aujourd'hui ? Créez un CV de zéro ou modifiez un CV déjà existant par
+                  Que souhaitez-vous faire aujourd&apos;hui ? Créez un CV de zéro ou modifiez un CV déjà existant par
                   simples instructions.
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Option A : Create New CV */}
               <div className="p-5 rounded-2xl bg-slate-800/80 border border-slate-700 hover:border-blue-500 flex flex-col justify-between space-y-4 transition">
                 <div>
-                  <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-600/20 text-blue-500 flex items-center justify-center mb-3">
                     <FilePlus size={22} />
                   </div>
                   <h3 className="font-extrabold text-base text-white">1. Créer un Nouveau CV</h3>
@@ -2353,9 +2462,9 @@ export default function App() {
                       setShowWelcomeModal(false);
                       showNotification('Nouveau CV vierge initialisé !');
                     }}
-                    className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs"
+                    className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white keep-white font-bold text-xs"
                   >
-                    Partir d'un CV Vierge
+                    Partir d&apos;un CV Vierge
                   </button>
                   <button
                     onClick={() => {
@@ -2366,12 +2475,11 @@ export default function App() {
                     }}
                     className="w-full py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-semibold text-xs"
                   >
-                    Partir d'un Exemple Pré-rempli
+                    Partir d&apos;un Exemple Pré-rempli
                   </button>
                 </div>
               </div>
 
-              {/* Option B : Modify Existing CV ("L'Option Qui Change Tout") */}
               <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-500/15 via-slate-800 to-slate-800 border-2 border-amber-400/70 flex flex-col justify-between space-y-4">
                 <div>
                   <div className="flex items-center justify-between mb-3">
@@ -2384,8 +2492,8 @@ export default function App() {
                   </div>
                   <h3 className="font-extrabold text-base text-white">2. Modifier un CV Déjà Disponible</h3>
                   <p className="text-xs text-slate-300 mt-1">
-                    Soumettez votre CV (PDF, Word DOCX, JPEG, PNG...). L'application l'analyse, conserve son design
-                    original et applique vos instructions !
+                    Soumettez votre CV (PDF, Word DOCX, JPEG, PNG...). L&apos;application l&apos;analyse, conserve son
+                    design original et applique vos instructions !
                   </p>
                 </div>
                 <button
@@ -2406,7 +2514,7 @@ export default function App() {
       {/* ===================================================================== */}
       {showExportModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-5 relative">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setShowExportModal(false)}
               className="absolute top-5 right-5 p-2 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300"
@@ -2421,7 +2529,8 @@ export default function App() {
               <div>
                 <h2 className="text-lg font-extrabold text-white">Exporter votre CV — Tous Formats Supportés</h2>
                 <p className="text-xs text-slate-400">
-                  Choisissez le format d'exportation souhaité ({previewMode === 'cover_letter' ? 'Lettre de Motivation' : 'CV actuel'})
+                  Choisissez le format d&apos;exportation souhaité (
+                  {previewMode === 'cover_letter' ? 'Lettre de Motivation' : 'CV actuel'})
                 </p>
               </div>
             </div>
@@ -2430,9 +2539,21 @@ export default function App() {
               {[
                 {
                   id: 'pdf',
-                  title: 'PDF Haute Qualité (.pdf)',
-                  desc: 'Format standard A4 prêt pour l’impression et les recruteurs',
+                  title: 'PDF Haute Qualité Multi-Pages (.pdf)',
+                  desc: 'Saut de page intelligent (ne coupe aucun bloc ni texte) + photo HD sans déformation',
                   badge: 'Recommandé',
+                },
+                {
+                  id: 'pdf_onepage',
+                  title: 'PDF Ajusté sur 1 Seule Page (.pdf)',
+                  desc: 'Ajuste automatiquement votre CV pour qu’il tienne sur une unique page A4',
+                  badge: '1 Page A4',
+                },
+                {
+                  id: 'pdf_print',
+                  title: 'PDF Vectoriel Natif (Impression A4)',
+                  desc: 'Génère un PDF 100% vectoriel ultra-net via le moteur natif du navigateur',
+                  badge: 'Vectoriel',
                 },
                 {
                   id: 'docx',
@@ -2462,7 +2583,7 @@ export default function App() {
                   id: 'svg',
                   title: 'Vecteur SVG (.svg)',
                   desc: 'Format vectoriel redimensionnable à l’infini',
-                  badge: 'Vectoriel',
+                  badge: 'SVG',
                 },
                 {
                   id: 'html',
@@ -2496,10 +2617,10 @@ export default function App() {
                   className="p-3.5 rounded-2xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-amber-400 text-left flex flex-col justify-between transition group"
                 >
                   <div className="flex items-center justify-between w-full">
-                    <span className="text-xs font-extrabold text-white group-hover:text-amber-300">
+                    <span className="text-xs font-extrabold text-white group-hover:text-amber-400">
                       {fmt.title}
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-bold shrink-0 ml-2">
                       {fmt.badge}
                     </span>
                   </div>
